@@ -12,29 +12,171 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Check critical vulnerabilities
-        run: |
-          python - << 'EOF'
-          import json
-          import sys
+      - name: Try download SCA Report JSON artifact (optional)
+        # continue-on-error permet de ne pas échouer si l'artefact n'existe pas
+        uses: actions/download-artifact@v4
+        with:
+          name: SCA Report JSON
+          path: ./artifacts/sca_json
+        continue-on-error: true
 
-          try:
-              with open("sca-report.json") as f:
-                  data = json.load(f)
-          except FileNotFoundError:
-              print("sca-report.json not found. Assuming no critical vulnerabilities.")
+      - name: Try download SCA Report TXT artifact (optional)
+        uses: actions/download-artifact@v4
+        with:
+          name: SCA Report TXT
+          path: ./artifacts/sca_txt
+        continue-on-error: true
+
+      - name: List potential locations for debugging
+        run: |
+          echo "Workspace files:"
+          ls -la .
+          echo "Artifacts dir:"
+          ls -la ./artifacts || true
+          echo "Looking for sca-report.json or sca-report.txt in workspace and artifacts..."
+
+      - name: Check critical vulnerabilities (JSON or TXT)
+        run: |
+          python - << 'PY'
+          import json, os, sys, glob, re
+
+          # Candidate files (in order of preference)
+          candidates = [
+              "sca-report.json",
+              "sca-report.txt",
+              "./artifacts/sca_json/sca-report.json",
+              "./artifacts/sca_json/sca-report.jsonl",
+              "./artifacts/sca_txt/sca-report.txt",
+          ]
+
+          # also include any json or txt inside artifacts directories
+          candidates += glob.glob("./artifacts/sca_json/*.json") + glob.glob("./artifacts/sca_txt/*.txt")
+
+          def find_candidate():
+              for p in candidates:
+                  if os.path.exists(p):
+                      return p
+              # try any file named sca-report.* anywhere
+              for root, dirs, files in os.walk("."):
+                  for f in files:
+                      if f.lower().startswith("sca-report"):
+                          return os.path.join(root, f)
+              return None
+
+          path = find_candidate()
+          if not path:
+              print("No sca-report file found anywhere. Assuming no critical vulnerabilities.")
               sys.exit(0)
 
-          critical_found = False
-          for adv in data.get("advisories", {}).values():
-              if adv.get("severity") == "CRITICAL":
-                  print(f"Critical vulnerability found: {adv.get('cves')}")
-                  critical_found = True
+          print(f"Using report file: {path}")
 
-          if critical_found:
-              print("Security Gate failed! At least one CRITICAL vulnerability detected.")
-              sys.exit(1)  # Rouge si au moins 1 vuln critique
+          # If JSON: try parse and inspect
+          if path.lower().endswith(".json") or path.lower().endswith(".jsonl"):
+              try:
+                  with open(path, "r", encoding="utf-8") as fh:
+                      content = fh.read()
+                      # try to parse as JSON array/object
+                      try:
+                          data = json.loads(content)
+                      except json.JSONDecodeError:
+                          # try line-delimited JSON: try first valid line
+                          data = None
+                          for line in content.splitlines():
+                              line = line.strip()
+                              if not line:
+                                  continue
+                              try:
+                                  data = json.loads(line)
+                                  break
+                              except:
+                                  continue
+                          if data is None:
+                              print("Could not parse JSON content. Falling back to text scanning.")
+                              # fallback to text scanning
+                              text = content
+                              matches = re.findall(r'CRITICAL|CVE-\d{4}-\d{4,7}', text, flags=re.IGNORECASE)
+                              if matches:
+                                  print("Found critical indicators in text fallback:", matches)
+                                  sys.exit(1)
+                              else:
+                                  print("No critical indicators in JSON text fallback.")
+                                  sys.exit(0)
+
+                  critical_found = False
+                  # handle Snyk older structure: "advisories" dict
+                  if isinstance(data, dict):
+                      if "advisories" in data and isinstance(data["advisories"], dict):
+                          for adv in data["advisories"].values():
+                              sev = adv.get("severity", "") or adv.get("severity_score", "")
+                              # severity might be in different fields
+                              if isinstance(sev, str) and "CRITICAL" in sev.upper():
+                                  print("Critical found in advisories:", adv.get("cves", adv.get("title")))
+                                  critical_found = True
+                                  break
+                              # some adv entries may have severity in 'vuln_severity' or similar
+                              if isinstance(adv, dict):
+                                  for key in ["severity", "vuln_severity", "priority"]:
+                                      if key in adv and isinstance(adv[key], str) and "CRITICAL" in adv[key].upper():
+                                          print("Critical found in advisories key:", key, adv.get("cves", adv.get("title")))
+                                          critical_found = True
+                                          break
+                          if critical_found:
+                              sys.exit(1)
+
+                      # handle generic 'vulnerabilities' list
+                      if "vulnerabilities" in data and isinstance(data["vulnerabilities"], list):
+                          for adv in data["vulnerabilities"]:
+                              sev = adv.get("severity", "") if isinstance(adv, dict) else ""
+                              if isinstance(sev, str) and "CRITICAL" in sev.upper():
+                                  print("Critical found in vulnerabilities list:", adv.get("cves", adv.get("package", adv)))
+                                  critical_found = True
+                                  break
+                          if critical_found:
+                              sys.exit(1)
+
+                      # Some tools return top-level list of issues
+                      if isinstance(data, list):
+                          for adv in data:
+                              if isinstance(adv, dict):
+                                  sev = adv.get("severity", "")
+                                  if isinstance(sev, str) and "CRITICAL" in sev.upper():
+                                      print("Critical found in top-level list:", adv.get("cves", adv.get("package", adv)))
+                                      critical_found = True
+                                      break
+                          if critical_found:
+                              sys.exit(1)
+
+                      # As extra check: search any string values for 'CRITICAL' or CVE patterns
+                      combined = json.dumps(data)
+                      if re.search(r'\bCRITICAL\b', combined, flags=re.IGNORECASE) or re.search(r'CVE-\d{4}-\d{4,7}', combined, flags=re.IGNORECASE):
+                          print("Found CRITICAL or CVE pattern in JSON content.")
+                          sys.exit(1)
+
+                  print("No CRITICAL severity found in parsed JSON.")
+                  sys.exit(0)
+
+              except Exception as e:
+                  print("Error while processing JSON:", e)
+                  # fallback to text scan
+                  with open(path, "r", encoding="utf-8") as fh:
+                      text = fh.read()
+                      if re.search(r'\bCRITICAL\b', text, flags=re.IGNORECASE) or re.search(r'CVE-\d{4}-\d{4,7}', text, flags=re.IGNORECASE):
+                          print("Found CRITICAL or CVE in fallback text scan.")
+                          sys.exit(1)
+                      else:
+                          print("No critical indicators in fallback text scan.")
+                          sys.exit(0)
+
           else:
-              print("No critical vulnerabilities found. Security Gate passed.")
-              sys.exit(0)  # Vert si rien
-          EOF
+              # TXT fallback: simple pattern search
+              with open(path, "r", encoding="utf-8") as fh:
+                  text = fh.read()
+                  if re.search(r'\bCRITICAL\b', text, flags=re.IGNORECASE):
+                      print("Found 'CRITICAL' in text report.")
+                      sys.exit(1)
+                  if re.search(r'CVE-\d{4}-\d{4,7}', text, flags=re.IGNORECASE):
+                      print("Found CVE pattern in text report.")
+                      sys.exit(1)
+                  print("No critical indicators found in text report.")
+                  sys.exit(0)
+          PY
