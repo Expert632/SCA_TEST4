@@ -9,7 +9,8 @@ jobs:
   cve-analysis:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
       - name: Install Python dependencies
         run: pip install pandas
@@ -20,20 +21,24 @@ jobs:
           import json
           import os
 
+          # Détecte le rapport JSON ou TXT
           report_file = "sca-report.json"
           if not os.path.exists(report_file):
               print("sca-report.json not found. Trying TXT fallback...")
               report_file = "sca-report.txt"
 
+          vulnerabilities = []
+
           try:
               with open(report_file) as f:
                   data = f.read()
+                  # Essaie de parser JSON
                   try:
                       sca_json = json.loads(data)
                   except json.JSONDecodeError:
                       sca_json = {"advisories": []}
 
-              vulnerabilities = []
+              # Extraction des CVE et sévérité
               if "advisories" in sca_json:
                   for key, adv in sca_json["advisories"].items():
                       cves = adv.get("cves", [])
@@ -41,19 +46,30 @@ jobs:
                       for cve in cves:
                           vulnerabilities.append((cve, severity))
 
+              # Tri par sévérité : CRITICAL > HIGH > MEDIUM > LOW > UNKNOWN
               severity_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "UNKNOWN": 4}
               vulnerabilities.sort(key=lambda x: severity_order.get(x[1], 4))
 
+              # Affichage console
               print("=== Sorted Vulnerabilities ===")
-              for cve, sev in vulnerabilities:
-                  print(f"{cve} | {sev}")
-
-              with open("sorted_cve_report.txt", "w") as out:
+              if vulnerabilities:
                   for cve, sev in vulnerabilities:
-                      out.write(f"{cve} | {sev}\n")
+                      print(f"{cve} | {sev}")
+              else:
+                  print("No vulnerabilities found.")
+
+              # Toujours créer le fichier sorted_cve_report.txt
+              with open("sorted_cve_report.txt", "w") as out:
+                  if vulnerabilities:
+                      for cve, sev in vulnerabilities:
+                          out.write(f"{cve} | {sev}\n")
+                  else:
+                      out.write("No vulnerabilities found.\n")
 
           except FileNotFoundError:
               print(f"{report_file} not found")
+              with open("sorted_cve_report.txt", "w") as out:
+                  out.write("No vulnerabilities found.\n")
           EOF
 
       - name: Upload sorted CVE report
