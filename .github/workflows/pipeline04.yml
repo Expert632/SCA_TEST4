@@ -1,16 +1,40 @@
 name: Pipeline 04 - Security Gate
-on: push:
-  branches: [ main ]
+
+on:
+  push:
+    branches:
+      - main
+
 jobs:
   security-gate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: Check SCA Report
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Check critical vulnerabilities
         run: |
-          if grep -q "CRITICAL" sca-report.txt; then
-            echo "Security Gate Failed: Critical vulnerability detected!"
-            exit 1
-          else
-            echo "Security Gate Passed: No critical vulnerability."
-          fi
+          python - << 'EOF'
+          import json
+          import sys
+
+          try:
+              with open("sca-report.json") as f:
+                  data = json.load(f)
+          except FileNotFoundError:
+              print("sca-report.json not found. Assuming no critical vulnerabilities.")
+              sys.exit(0)
+
+          critical_found = False
+          for adv in data.get("advisories", {}).values():
+              if adv.get("severity") == "CRITICAL":
+                  print(f"Critical vulnerability found: {adv.get('cves')}")
+                  critical_found = True
+
+          if critical_found:
+              print("Security Gate failed! At least one CRITICAL vulnerability detected.")
+              sys.exit(1)  # Rouge si au moins 1 vuln critique
+          else:
+              print("No critical vulnerabilities found. Security Gate passed.")
+              sys.exit(0)  # Vert si rien
+          EOF
