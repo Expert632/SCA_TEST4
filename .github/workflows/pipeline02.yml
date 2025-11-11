@@ -10,16 +10,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Install dependency checker
+
+      - name: Install dependency checkers
         run: |
           pip install safety
           npm install -g snyk
+
       - name: Python SCA Scan
         run: safety check --full-report > sca-report.txt || true
+
       - name: Node.js SCA Scan
         run: snyk test --json >> sca-report.txt || true
+
       - name: Upload SCA Report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: SCA Report
           path: sca-report.txt
