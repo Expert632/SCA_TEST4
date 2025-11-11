@@ -1,0 +1,63 @@
+name: Pipeline 05 - Analyse CVE avec Python
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  cve-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Python dependencies
+        run: pip install pandas
+
+      - name: Parse and sort CVE report
+        run: |
+          python - << 'EOF'
+          import json
+          import os
+
+          report_file = "sca-report.json"
+          if not os.path.exists(report_file):
+              print("sca-report.json not found. Trying TXT fallback...")
+              report_file = "sca-report.txt"
+
+          try:
+              with open(report_file) as f:
+                  data = f.read()
+                  try:
+                      sca_json = json.loads(data)
+                  except json.JSONDecodeError:
+                      sca_json = {"advisories": []}
+
+              vulnerabilities = []
+              if "advisories" in sca_json:
+                  for key, adv in sca_json["advisories"].items():
+                      cves = adv.get("cves", [])
+                      severity = adv.get("severity", "UNKNOWN")
+                      for cve in cves:
+                          vulnerabilities.append((cve, severity))
+
+              severity_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "UNKNOWN": 4}
+              vulnerabilities.sort(key=lambda x: severity_order.get(x[1], 4))
+
+              print("=== Sorted Vulnerabilities ===")
+              for cve, sev in vulnerabilities:
+                  print(f"{cve} | {sev}")
+
+              with open("sorted_cve_report.txt", "w") as out:
+                  for cve, sev in vulnerabilities:
+                      out.write(f"{cve} | {sev}\n")
+
+          except FileNotFoundError:
+              print(f"{report_file} not found")
+          EOF
+
+      - name: Upload sorted CVE report
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sorted CVE Report
+          path: sorted_cve_report.txt
