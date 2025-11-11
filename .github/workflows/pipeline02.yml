@@ -17,13 +17,24 @@ jobs:
           npm install -g snyk
 
       - name: Python SCA Scan
-        run: safety check --full-report > sca-report.txt || true
+        run: |
+          # Génération du rapport TXT et JSON
+          safety check --full-report > sca-report.txt || true
+          pip install json > sca-report.json || true
 
       - name: Node.js SCA Scan
-        run: snyk test --json >> sca-report.txt || true
+        run: |
+          snyk test --json > sca-report.json || true
+          snyk test >> sca-report.txt || true
 
-      - name: Upload SCA Report
+      - name: Upload SCA Report TXT
         uses: actions/upload-artifact@v4
         with:
-          name: SCA Report
+          name: SCA Report TXT
           path: sca-report.txt
+
+      - name: Upload SCA Report JSON
+        uses: actions/upload-artifact@v4
+        with:
+          name: SCA Report JSON
+          path: sca-report.json
