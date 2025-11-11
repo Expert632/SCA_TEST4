@@ -1,13 +1,19 @@
 name: Pipeline 02 - Scan SCA
-on: push:
-  branches: [ main ]
+
+on:
+  push:
+    branches:
+      - main
+
 jobs:
   sca-scan:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - name: Install dependency checker
-        run: pip install safety && npm install -g snyk
+        run: |
+          pip install safety
+          npm install -g snyk
       - name: Python SCA Scan
         run: safety check --full-report > sca-report.txt || true
       - name: Node.js SCA Scan
