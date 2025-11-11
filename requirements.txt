@@ -1,0 +1,2 @@
+# Dépendances sûres
+requests==2.31.0
