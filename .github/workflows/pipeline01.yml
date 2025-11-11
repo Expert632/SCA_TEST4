@@ -1,6 +1,10 @@
 name: Pipeline 01 - Vérification Syntaxe
-on: push:
-  branches: [ main ]
+
+on:
+  push:
+    branches:
+      - main
+
 jobs:
   syntax-check:
     runs-on: ubuntu-latest
