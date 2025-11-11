@@ -9,23 +9,82 @@ jobs:
   sca-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      - name: Install dependency checkers
-        run: |
-          pip install safety
-          npm install -g snyk
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
 
-      - name: Python SCA Scan
-        run: |
-          # Génération du rapport TXT et JSON
-          safety check --full-report > sca-report.txt || true
-          pip install json > sca-report.json || true
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
 
-      - name: Node.js SCA Scan
+      - name: Install SCA tools
         run: |
-          snyk test --json > sca-report.json || true
+          # Install Snyk (Node) and Safety (Python)
+          npm install -g snyk || true
+          pip install safety || true
+          # Ensure jq for pretty prints if needed
+          sudo apt-get update -y && sudo apt-get install -y jq || true
+
+      - name: Node.js - install dependencies
+        run: |
+          # prefer npm ci in CI; fallback to npm install
+          if [ -f package-lock.json ]; then
+            npm ci || npm install
+          else
+            npm install || true
+          fi
+
+      - name: Node.js SCA Scan (JSON + TXT)
+        run: |
+          echo "Running Snyk test (Node.js) -> sca-report-node.json and append to sca-report.txt"
+          # Generates JSON (used by pipeline05/pipeline04) and appends a human readable txt
+          snyk test --json > sca-report-node.json || true
           snyk test >> sca-report.txt || true
+          echo "Node SCA scan done."
+
+      - name: Python SCA Scan (JSON + TXT)
+        run: |
+          echo "Running Safety (Python) -> sca-report-py.json and append to sca-report.txt"
+          # safety supports --json in recent versions; fallback to text if not
+          safety check --json > sca-report-py.json || true
+          safety check --full-report >> sca-report.txt || true
+          echo "Python SCA scan done."
+
+      - name: Merge basic reports (optional)
+        run: |
+          echo "===== NODE SCA REPORT (node.json) =====" > sca-report.txt.tmp
+          if [ -f sca-report-node.json ]; then
+            echo "Node JSON present" >> sca-report.txt.tmp
+            jq -r '.' sca-report-node.json >> sca-report.txt.tmp || cat sca-report-node.json >> sca-report.txt.tmp
+          fi
+          echo "" >> sca-report.txt.tmp
+          echo "===== PYTHON SCA REPORT (py.json) =====" >> sca-report.txt.tmp
+          if [ -f sca-report-py.json ]; then
+            jq -r '.' sca-report-py.json >> sca-report.txt.tmp || cat sca-report-py.json >> sca-report.txt.tmp
+          fi
+          # Append previous human readable text if generated
+          if [ -f sca-report.txt ]; then
+            echo "" >> sca-report.txt.tmp
+            echo "===== HUMAN READABLE OUTPUT =====" >> sca-report.txt.tmp
+            cat sca-report.txt >> sca-report.txt.tmp
+          fi
+          mv sca-report.txt.tmp sca-report.txt || true
+          echo "Merged reports into sca-report.txt"
+
+      - name: Show small preview (debug)
+        run: |
+          echo "---- files in workspace ----"
+          ls -la
+          echo "---- head sca-report.txt ----"
+          head -n 200 sca-report.txt || true
+          echo "---- exists sca-report-node.json? ----"
+          [ -f sca-report-node.json ] && echo "sca-report-node.json exists" || echo "sca-report-node.json missing"
+          [ -f sca-report-py.json ] && echo "sca-report-py.json exists" || echo "sca-report-py.json missing"
 
       - name: Upload SCA Report TXT
         uses: actions/upload-artifact@v4
@@ -33,8 +92,14 @@ jobs:
           name: SCA Report TXT
           path: sca-report.txt
 
-      - name: Upload SCA Report JSON
+      - name: Upload SCA Report Node JSON
         uses: actions/upload-artifact@v4
         with:
-          name: SCA Report JSON
-          path: sca-report.json
+          name: SCA Report JSON (Node)
+          path: sca-report-node.json
+
+      - name: Upload SCA Report Python JSON
+        uses: actions/upload-artifact@v4
+        with:
+          name: SCA Report JSON (Python)
+          path: sca-report-py.json
