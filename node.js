@@ -1,6 +1,4 @@
-// index.js - application de test Node.js (safe)
-function greet(name) {
-    return `Hello, ${name}!`;
+"dependencies": {
+  "lodash": "^4.17.21",
+  "express": "^4.18.2"
 }
-
-console.log(greet("Student"));
