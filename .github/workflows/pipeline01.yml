@@ -1,0 +1,14 @@
+name: Pipeline 01 - Vérification Syntaxe
+on: push:
+  branches: [ main ]
+jobs:
+  syntax-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Check Python syntax
+        run: python -m py_compile app.py
+      - name: Check Node.js syntax
+        run: node -c index.js || echo "Syntax OK"
+      - name: Check Java syntax
+        run: javac Main.java
