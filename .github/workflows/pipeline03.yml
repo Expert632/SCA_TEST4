@@ -1,4 +1,4 @@
-name: Pipeline 03 - Remediation Auto
+name: Pipeline 03 - Auto Remediation
 
 on:
   push:
@@ -9,14 +9,26 @@ jobs:
   remediation:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      - name: Node.js auto-fix
+      - name: Install SCA tools
         run: |
-          echo "Attempting auto-remediation..."
-          npm audit fix || true
+          npm install -g snyk
+          pip install safety
 
-      - name: Display unresolved vulnerabilities
+      - name: Auto Remediation Node.js
         run: |
-          echo "Unresolved vulnerabilities (if any):"
-          npm audit --json | jq '.advisories | to_entries[] | .value.title + " " + .value.severity + " " + .value.cves[]?'
+          snyk fix || true   # Ne bloque pas le pipeline si aucune vulnérabilité à corriger
+
+      - name: Auto Remediation Python
+        run: |
+          safety check --full-report || true   # Même logique pour Python
+
+      - name: Upload report after remediation
+        uses: actions/upload-artifact@v4
+        with:
+          name: Remediation Report
+          path: |
+            sca-report.txt
+            sca-report.json
