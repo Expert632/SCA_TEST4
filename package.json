@@ -4,6 +4,6 @@
   "description": "Lab pédagogique DevSecOps avec vulnérabilité critique",
   "main": "index.js",
   "dependencies": {
-    "lodash": "4.17.15"
+    "lodash": "4.17.11"
   }
 }
