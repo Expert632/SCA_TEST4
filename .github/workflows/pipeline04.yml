@@ -1,0 +1,16 @@
+name: Pipeline 04 - Security Gate
+on: push:
+  branches: [ main ]
+jobs:
+  security-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Check SCA Report
+        run: |
+          if grep -q "CRITICAL" sca-report.txt; then
+            echo "Security Gate Failed: Critical vulnerability detected!"
+            exit 1
+          else
+            echo "Security Gate Passed: No critical vulnerability."
+          fi
