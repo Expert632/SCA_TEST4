@@ -1,9 +1,8 @@
 {
   "name": "devsecops-lab",
   "version": "1.0.0",
-  "description": "Lab pédagogique DevSecOps avec vulnérabilité critique",
-  "main": "index.js",
   "dependencies": {
-    "lodash": "4.17.10"
+    "lodash": "4.17.15"
   }
 }
+
